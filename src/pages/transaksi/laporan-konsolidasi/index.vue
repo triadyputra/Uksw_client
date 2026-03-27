@@ -42,37 +42,60 @@ const { data: dataApi, execute: fetchData } = await useApi<any>(
 const listData = computed((): ViewListData[] => dataApi.value?.Data ?? [])
 const totalData = computed(() => dataApi.value?.TotalCount ?? 10)
 
-async function download() {
+// =========================
+// VALIDASI
+// =========================
+const isFilterReady = computed(() => {
+  return searchQuery.value && searchQuery.value.length === 6
+})
+
+// =========================
+// DOWNLOAD
+// =========================
+const loadingDownload = ref(false)
+
+async function handleDownload(type: 'konsolidasi' | 'penghasilan') {
   try {
-    const url = `/api/Laporan/export-konsolidasi?periode=${searchQuery.value}`
+    loadingDownload.value = true
+
+    const urlMap = {
+      konsolidasi: '/api/Laporan/export-konsolidasi',
+      penghasilan: '/api/Laporan/export-konsolidasi-penghasilan',
+    }
+
+    const url = `${urlMap[type]}?periode=${searchQuery.value}`
+
     const resData = await useApi(url)
+    const base64 = resData?.data?.value?.fileBase64
 
-    const base64 = resData?.data?.value.fileBase64
+    if (!base64) {
+      console.warn('File kosong')
 
-    // 👇 periksa bentuk data dari API
-    console.log('Respon Data COA:', base64)
+      return
+    }
 
-    // Convert Base64 ke Blob
-    const binary = atob(base64) // decode base64
+    const binary = atob(base64)
     const array = new Uint8Array(binary.length)
+
     for (let i = 0; i < binary.length; i++)
       array[i] = binary.charCodeAt(i)
 
-    const blob = new Blob([array], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    const blob = new Blob([array], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })
 
-    // Buat URL sementara & trigger download
     const blobUrl = URL.createObjectURL(blob)
+
     const link = document.createElement('a')
 
     link.href = blobUrl
-    link.download = `Laporan_Konsolidasi_${searchQuery.value}.xlsx`
+    link.download = `${type}_${searchQuery.value}.xlsx`
     link.click()
 
-    // Release URL
     URL.revokeObjectURL(blobUrl)
   }
-  catch (error) {
-    console.error('❌ Error Fetch COA:', error)
+  finally {
+    loadingDownload.value = false
   }
 }
 </script>
@@ -101,13 +124,33 @@ async function download() {
             v-model="itemsPerPage"
             :items="[5, 10, 20, 25, 50]"
           />
-          <VBtn
-            color="primary"
-            prepend-icon="tabler-file-upload"
-            @click="() => download()"
-          >
-            Download
-          </VBtn>
+          <VMenu>
+            <template #activator="{ props }">
+              <VBtn
+                color="primary"
+                prepend-icon="tabler-download"
+                v-bind="props"
+                :loading="loadingDownload"
+                :disabled="!isFilterReady"
+              >
+                Cetak Laporan
+              </VBtn>
+            </template>
+
+            <VList>
+              <VListItem @click="handleDownload('konsolidasi')">
+                <VListItemTitle>
+                  Laporan Konsolidasi
+                </VListItemTitle>
+              </VListItem>
+
+              <VListItem @click="handleDownload('penghasilan')">
+                <VListItemTitle>
+                  Penghasilan Komprehensif
+                </VListItemTitle>
+              </VListItem>
+            </VList>
+          </VMenu>
         </div>
       </div>
 

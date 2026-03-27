@@ -80,7 +80,16 @@ export const useApi = createFetch({
 
     // 🟢 Error handler opsional
     onFetchError(ctx) {
-      console.error('❌ Fetch error:', ctx.error)
+      const err: any = ctx.error
+
+      // 🔥 IGNORE AbortError (INI KUNCI UTAMA)
+      if (
+        err?.name === 'AbortError'
+    || err?.message?.includes('aborted')
+      )
+        return ctx
+
+      console.error('❌ Fetch error:', err)
 
       return ctx
     },

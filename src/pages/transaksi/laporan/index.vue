@@ -6,12 +6,9 @@ definePage({
   },
 })
 
-// interface ViewListData {
-//   KodeYayasan: string
-//   NamaYayasan: string
-//   Total: string
-// }
-
+// =========================
+// TABLE
+// =========================
 const headers = [
   { title: 'Kode', key: 'KodeYayasan', width: '15%' },
   { title: 'Nama', key: 'NamaYayasan', width: '65%' },
@@ -21,29 +18,31 @@ const headers = [
   { title: 'Saldo', key: 'Saldo', align: 'end' },
 ]
 
+// =========================
+// STATE
+// =========================
 const searchQuery = ref('')
 const selectedRows = ref([])
-
 const itemsPerPage = ref(10)
 const page = ref(1)
 
-const jenis = ref([
+const jenis = [
   { title: 'Entitas', value: 'Entitas' },
   { title: 'Unit', value: 'Unit' },
-])
+]
 
 const selectedUnit = ref('Unit')
 
-/* =========================
-   READY FILTER
-========================= */
+// =========================
+// VALIDASI
+// =========================
 const isFilterReady = computed(() => {
-  return searchQuery.value?.length >= 6
+  return searchQuery.value && searchQuery.value.length === 6
 })
 
-/* =========================
-   QUERY PARAMS
-========================= */
+// =========================
+// QUERY PARAM
+// =========================
 const queryParams = computed(() => ({
   periode: searchQuery.value,
   unit: selectedUnit.value,
@@ -51,110 +50,169 @@ const queryParams = computed(() => ({
   pageSize: itemsPerPage.value,
 }))
 
-/* =========================
-   API
-========================= */
+// =========================
+// API
+// =========================
 const { data: dataApi, execute: fetchData } = await useApi<any>(
   createUrl('/api/Laporan/GetLaporanGabungan', { query: queryParams }),
 )
 
-/* =========================
-   WATCH SEARCH (6 DIGIT)
-========================= */
-watchDebounced(
-  [searchQuery, selectedUnit, page, itemsPerPage],
-  () => {
-    if (!isFilterReady.value)
-      return
-
-    fetchData()
-  },
-  { debounce: 500 },
-)
-
-/* =========================
-   DATA
-========================= */
+// =========================
+// DATA
+// =========================
 const listData = computed(() => dataApi.value?.Data ?? [])
 const totalData = computed(() => dataApi.value?.TotalCount ?? 0)
+const isLoading = computed(() => dataApi?.pending ?? false)
 
-/* =========================
-   DOWNLOAD
-========================= */
-async function download() {
-  const unit = unitId ?? selectedUnit.value
+// =========================
+// SEARCH (MANUAL)
+// =========================
+async function handleSearch() {
+  if (!isFilterReady.value)
+    return
 
-  const url = `/api/Laporan/export-gabungan?periode=${searchQuery.value}&unit=${unit}`
+  page.value = 1
+  await fetchData()
+}
 
-  const resData = await useApi(url)
-  const base64 = resData?.data?.value.fileBase64
+// =========================
+// WATCH (PAGE SAJA)
+// =========================
+watch([page, itemsPerPage, selectedUnit], () => {
+  if (!isFilterReady.value)
+    return
 
-  const binary = atob(base64)
-  const array = new Uint8Array(binary.length)
+  fetchData()
+})
 
-  for (let i = 0; i < binary.length; i++)
-    array[i] = binary.charCodeAt(i)
+// =========================
+// DOWNLOAD
+// =========================
+const loadingDownload = ref(false)
 
-  const blob = new Blob([array], {
-    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  })
+async function handleDownload(type: 'konsolidasi' | 'penghasilan') {
+  try {
+    loadingDownload.value = true
 
-  const blobUrl = URL.createObjectURL(blob)
+    const urlMap = {
+      konsolidasi: '/api/Laporan/export-gabungan',
+      penghasilan: '/api/Laporan/export-gabungan-penghasilan',
+    }
 
-  const link = document.createElement('a')
+    const url = `${urlMap[type]}?periode=${searchQuery.value}&unit=${selectedUnit.value}`
 
-  link.href = blobUrl
-  link.download = `Laporan_Konsolidasi_${searchQuery.value}.xlsx`
-  link.click()
+    const resData = await useApi(url)
+    const base64 = resData?.data?.value?.fileBase64
 
-  URL.revokeObjectURL(blobUrl)
+    if (!base64) {
+      console.warn('File kosong')
+
+      return
+    }
+
+    const binary = atob(base64)
+    const array = new Uint8Array(binary.length)
+
+    for (let i = 0; i < binary.length; i++)
+      array[i] = binary.charCodeAt(i)
+
+    const blob = new Blob([array], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })
+
+    const blobUrl = URL.createObjectURL(blob)
+
+    const link = document.createElement('a')
+
+    link.href = blobUrl
+    link.download = `${type}_${searchQuery.value}.xlsx`
+    link.click()
+
+    URL.revokeObjectURL(blobUrl)
+  }
+  finally {
+    loadingDownload.value = false
+  }
 }
 </script>
 
 <template>
   <div>
-    <!-- Filter -->
     <VCard
       title="Laporan Gabungan"
       class="mb-6"
     >
-      <div class="d-flex flex-wrap gap-4 ma-6">
-        <div class="d-flex align-center">
+      <!-- ================= FILTER ================= -->
+      <div class="d-flex justify-space-between align-center flex-wrap gap-4 ma-6">
+        <!-- LEFT -->
+        <div class="d-flex align-center gap-3 flex-wrap">
           <AppTextField
             v-model="searchQuery"
-            placeholder="Cari Data"
-            style="inline-size: 200px;"
-            class="me-3"
+            placeholder="Periode (YYYYMM)"
+            style="inline-size: 180px;"
+            @keyup.enter="handleSearch"
           />
-        </div>
-        <AppSelect
-          v-model="selectedUnit"
-          placeholder="Pilih Unit"
-          :items="jenis"
-        />
 
-        <VSpacer />
-
-        <VSpacer />
-
-        <div class="d-flex gap-4 flex-wrap align-center">
           <AppSelect
-            v-model="itemsPerPage"
-            :items="[5, 10, 20, 25, 50]"
+            v-model="selectedUnit"
+            :items="jenis"
+            style="inline-size: 160px;"
           />
+
           <VBtn
             color="primary"
-            prepend-icon="tabler-file-upload"
-            @click="() => download()"
+            prepend-icon="tabler-search"
+            :disabled="!isFilterReady"
+            :loading="isLoading"
+            @click="handleSearch"
           >
-            Download
+            Cari
           </VBtn>
+        </div>
+
+        <!-- RIGHT -->
+        <div class="d-flex align-center gap-3">
+          <!-- DROPDOWN CETAK -->
+          <VMenu>
+            <template #activator="{ props }">
+              <VBtn
+                color="primary"
+                prepend-icon="tabler-download"
+                v-bind="props"
+                :loading="loadingDownload"
+                :disabled="!isFilterReady"
+              >
+                Cetak Laporan
+              </VBtn>
+            </template>
+
+            <VList>
+              <VListItem @click="handleDownload('konsolidasi')">
+                <VListItemTitle>
+                  Laporan Konsolidasi
+                </VListItemTitle>
+              </VListItem>
+
+              <VListItem @click="handleDownload('penghasilan')">
+                <VListItemTitle>
+                  Penghasilan Komprehensif
+                </VListItemTitle>
+              </VListItem>
+            </VList>
+          </VMenu>
+
+          <!-- PAGE SIZE -->
+          <AppSelect
+            v-model="itemsPerPage"
+            :items="[5, 10, 20, 50]"
+            style="inline-size: 90px;"
+          />
         </div>
       </div>
 
-      <VDivider class="mt-4" />
+      <VDivider />
 
-      <!-- DataTable -->
+      <!-- ================= TABLE ================= -->
       <VDataTableServer
         v-model:items-per-page="itemsPerPage"
         v-model:model-value="selectedRows"
@@ -162,6 +220,7 @@ async function download() {
         :headers="headers"
         :items="listData"
         :items-length="totalData"
+        :loading="isLoading"
         class="text-no-wrap"
       >
         <template #item.Total="{ item }">
@@ -179,7 +238,7 @@ async function download() {
         <template #item.Saldo="{ item }">
           {{ formatNumber(item.Saldo) }}
         </template>
-        <!-- pagination -->
+
         <template #bottom>
           <TablePagination
             v-model:page="page"
