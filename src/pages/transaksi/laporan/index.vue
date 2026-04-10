@@ -33,6 +33,11 @@ const jenis = [
 
 const selectedUnit = ref('Unit')
 
+/* snackbar */
+const isSnackbarScaleVisible = ref(false)
+const snackbarMessage = ref('')
+const snackbarColor = ref('success') // default
+
 // =========================
 // VALIDASI
 // =========================
@@ -134,6 +139,54 @@ async function handleDownload(type: 'konsolidasi' | 'penghasilan') {
     loadingDownload.value = false
   }
 }
+
+const handleDownloadPdf = async (type: 'konsolidasi' | 'penghasilan') => {
+  try {
+    loadingDownload.value = true
+
+    const urlMap = {
+      konsolidasi: '/api/Laporan/export-konsolidasi-pdf-v2',
+      penghasilan: '/api/Laporan/export-penghasilan-pdf',
+    }
+
+    const url = `${urlMap[type]}?periode=${searchQuery.value}&unit=${selectedUnit.value}`
+
+    const res = await $api(url) // 🔥 TANPA POST
+
+    if (!res?.fileBase64) {
+      console.error('Response kosong dari API')
+
+      return
+    }
+
+    const fileName = res.fileName || `${type}.pdf`
+
+    const byteCharacters = atob(res.fileBase64)
+
+    const byteArray = new Uint8Array(
+      Array.from(byteCharacters, c => c.charCodeAt(0)),
+    )
+
+    const blob = new Blob([byteArray], { type: res.contentType || 'application/pdf' })
+
+    const link = document.createElement('a')
+
+    link.href = URL.createObjectURL(blob)
+    link.download = fileName
+
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+
+    URL.revokeObjectURL(link.href)
+  }
+  catch (error) {
+    console.error('Gagal download laporan:', error)
+  }
+  finally {
+    loadingDownload.value = false
+  }
+}
 </script>
 
 <template>
@@ -182,7 +235,7 @@ async function handleDownload(type: 'konsolidasi' | 'penghasilan') {
                 :loading="loadingDownload"
                 :disabled="!isFilterReady"
               >
-                Cetak Laporan
+                Cetak Laporan Excel
               </VBtn>
             </template>
 
@@ -194,6 +247,34 @@ async function handleDownload(type: 'konsolidasi' | 'penghasilan') {
               </VListItem>
 
               <VListItem @click="handleDownload('penghasilan')">
+                <VListItemTitle>
+                  Penghasilan Komprehensif
+                </VListItemTitle>
+              </VListItem>
+            </VList>
+          </VMenu>
+
+          <VMenu>
+            <template #activator="{ props }">
+              <VBtn
+                color="primary"
+                prepend-icon="tabler-download"
+                v-bind="props"
+                :loading="loadingDownload"
+                :disabled="!isFilterReady"
+              >
+                Cetak Laporan PDF
+              </VBtn>
+            </template>
+
+            <VList>
+              <VListItem @click="handleDownloadPdf('konsolidasi')">
+                <VListItemTitle>
+                  Laporan Konsolidasi
+                </VListItemTitle>
+              </VListItem>
+
+              <VListItem @click="handleDownloadPdf('penghasilan')">
                 <VListItemTitle>
                   Penghasilan Komprehensif
                 </VListItemTitle>
@@ -249,4 +330,15 @@ async function handleDownload(type: 'konsolidasi' | 'penghasilan') {
       </VDataTableServer>
     </VCard>
   </div>
+
+  <VSnackbar
+    v-model="isSnackbarScaleVisible"
+    transition="scale-transition"
+    location="top end"
+    variant="flat"
+    :color="snackbarColor"
+    :timeout="1500"
+  >
+    {{ snackbarMessage }}
+  </VSnackbar>
 </template>
